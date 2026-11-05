@@ -9,10 +9,7 @@ echo.
 where cl.exe >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] MSVC compiler not detected
-    echo Please run vcvarsall.bat or open "Developer Command Prompt for VS"
-    echo.
-    echo Example path:
-    echo   "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+    echo Please run vcvarsall.bat or open "x64 Native Tools Command Prompt for VS"
     echo.
     pause
     exit /b 1
@@ -26,7 +23,7 @@ if exist ToDoWell.exe del /q ToDoWell.exe
 
 echo [2/4] Compiling source files...
 
-set CFLAGS=/EHsc /std:c++17 /O2 /Zi /W3 /D_UNICODE /DUNICODE /MT /nologo
+set CFLAGS=/EHsc /std:c++17 /utf-8 /O2 /Zi /W3 /D_UNICODE /DUNICODE /MT /nologo
 set SOURCES=main.cpp app.cpp gfx.cpp storage.cpp json.cpp
 
 cl.exe %CFLAGS% /c %SOURCES%
@@ -38,7 +35,7 @@ if %errorlevel% neq 0 (
 
 echo [3/4] Linking executable...
 
-set LIBS=d2d1.lib dwrite.lib ole32.lib shell32.lib user32.lib gdi32.lib
+set LIBS=d2d1.lib dwrite.lib ole32.lib shell32.lib user32.lib gdi32.lib advapi32.lib
 set OBJS=main.obj app.obj gfx.obj storage.obj json.obj
 
 link.exe /OUT:ToDoWell.exe /SUBSYSTEM:WINDOWS %OBJS% %LIBS% /NOLOGO

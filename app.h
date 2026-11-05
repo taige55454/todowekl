@@ -171,3 +171,4 @@ private:
 };
 
 extern App* g_app;
+extern HBRUSH g_whiteBrush;

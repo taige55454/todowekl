@@ -1,4 +1,4 @@
-name: Build
+name: Build ToDoWell
 
 on:
   push:
@@ -7,41 +7,40 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
-    
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1.1
+      uses: actions/checkout@v4
     
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
     
-    - name: Build
+    - name: Compile and Link
+      shell: cmd
       run: |
-        cl.exe /EHsc /std:c++17 /O2 /D_UNICODE /DUNICODE /MT /nologo /c main.cpp app.cpp gfx.cpp storage.cpp json.cpp
-        if ($LASTEXITCODE -ne 0) { exit 1 }
-        link.exe /OUT:ToDoWell.exe /SUBSYSTEM:WINDOWS main.obj app.obj gfx.obj storage.obj json.obj d2d1.lib dwrite.lib ole32.lib shell32.lib user32.lib gdi32.lib /NOLOGO
-        if ($LASTEXITCODE -ne 0) { exit 1 }
+        cl.exe /EHsc /std:c++17 /utf-8 /O2 /D_UNICODE /DUNICODE /MT /nologo /c main.cpp app.cpp gfx.cpp storage.cpp json.cpp
+        link.exe /OUT:ToDoWell.exe /SUBSYSTEM:WINDOWS main.obj app.obj gfx.obj storage.obj json.obj d2d1.lib dwrite.lib ole32.lib shell32.lib user32.lib gdi32.lib advapi32.lib /NOLOGO
     
-    - name: Upload artifact
-      uses: actions/upload-artifact@v3
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
       with:
         name: ToDoWell-Windows
         path: ToDoWell.exe
     
     - name: Create Release
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-      uses: softprops/action-gh-release@v1
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v1.0.${{ github.run_number }}
-        name: Release v1.0.${{ github.run_number }}
+        name: ToDoWell v1.0.${{ github.run_number }}
         files: ToDoWell.exe
         draft: false
         prerelease: false

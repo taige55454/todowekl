@@ -1,6 +1,7 @@
 #include "json.h"
 #include <sstream>
 #include <cwchar>
+#include <cwctype> // 修复：引入宽字符处理头文件
 
 static size_t skipWhitespace(const std::wstring& s, size_t i) {
     while (i < s.size() && (s[i] == L' ' || s[i] == L'\t' || s[i] == L'\n' || s[i] == L'\r')) i++;

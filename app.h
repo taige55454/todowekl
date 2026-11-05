@@ -1,4 +1,6 @@
 #pragma once
+#define NOMINMAX
+#include <windows.h>
 #include "gfx.h"
 #include "storage.h"
 #include <vector>

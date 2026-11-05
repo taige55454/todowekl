@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include "storage.h"
 #include "json.h"
 #include <windows.h>
@@ -7,6 +8,7 @@
 #include <random>
 #include <iomanip>
 #include <cwctype>
+#include <map>
 
 static std::wstring get_exe_dir() {
     wchar_t path[MAX_PATH];
@@ -375,10 +377,10 @@ ParseResult quick_parse(const std::wstring& input) {
     std::wstring s = input;
     std::vector<std::wstring> labels;
     
-    if (s[0] == L'!' || s.find(L"important") == 0) {
+    if (s[0] == L'!' || s[0] == L'！' || s.find(L"important") == 0) {
         result.priority = 1;
         labels.push_back(L"⭐重要");
-        if (s[0] == L'!') {
+        if (s[0] == L'!' || s[0] == L'！') {
             s = s.substr(1);
         } else {
             s = s.substr(9);
@@ -402,23 +404,31 @@ ParseResult quick_parse(const std::wstring& input) {
         return buf;
     };
     
+    // 使用 FILETIME 安全计算偏移天数，避免月底溢出
     auto date_from_days = [&](int days) -> std::wstring {
         SYSTEMTIME temp = st;
-        temp.wDay += days;
-        while (temp.wDay > 31) {
-            temp.wDay -= 31;
-            temp.wMonth++;
-            if (temp.wMonth > 12) {
-                temp.wMonth = 1;
-                temp.wYear++;
-            }
-        }
+        FILETIME ft;
+        SystemTimeToFileTime(&temp, &ft);
+        
+        ULARGE_INTEGER uli;
+        uli.LowPart = ft.dwLowDateTime;
+        uli.HighPart = ft.dwHighDateTime;
+        uli.QuadPart += (LONGLONG)days * 864000000000LL;
+        
+        ft.dwLowDateTime = uli.LowPart;
+        ft.dwHighDateTime = uli.HighPart;
+        FileTimeToSystemTime(&ft, &temp);
+        
         return calc_date(temp.wYear, temp.wMonth, temp.wDay);
     };
     
     size_t pos = 0;
     
-    if ((pos = s.find(L"今天")) != std::wstring::npos) {
+    if ((pos = s.find(L"大后天")) != std::wstring::npos) {
+        result.due_date = date_from_days(3);
+        labels.push_back(L"📅大后天");
+        s.erase(pos, 3);
+    } else if ((pos = s.find(L"今天")) != std::wstring::npos) {
         result.due_date = today;
         labels.push_back(L"📅今天");
         s.erase(pos, 2);
@@ -430,31 +440,108 @@ ParseResult quick_parse(const std::wstring& input) {
         result.due_date = date_from_days(2);
         labels.push_back(L"📅后天");
         s.erase(pos, 2);
-    } else if ((pos = s.find(L"大后天")) != std::wstring::npos) {
-        result.due_date = date_from_days(3);
-        labels.push_back(L"📅大后天");
-        s.erase(pos, 3);
     }
     
+    if ((pos = s.find(L"每天")) != std::wstring::npos) {
+        result.repeat_rule = L"daily";
+        labels.push_back(L"🔁每天");
+        s.erase(pos, 2);
+    } else if ((pos = s.find(L"工作日")) != std::wstring::npos) {
+        result.repeat_rule = L"weekdays";
+        labels.push_back(L"🔁工作日");
+        s.erase(pos, 3);
+    } else if ((pos = s.find(L"每周")) != std::wstring::npos) {
+        result.repeat_rule = L"weekly";
+        size_t day_pos = pos + 2;
+        
+        std::map<wchar_t, int> day_map = {
+            {L'一', 0}, {L'二', 1}, {L'三', 2}, {L'四', 3}, 
+            {L'五', 4}, {L'六', 5}, {L'日', 6}, {L'天', 6}
+        };
+        
+        while (day_pos < s.size() && day_map.count(s[day_pos])) {
+            result.repeat_days.push_back(day_map[s[day_pos]]);
+            day_pos++;
+        }
+        
+        if (!result.repeat_days.empty()) {
+            std::wstring day_label = L"🔁每周";
+            for (auto d : result.repeat_days) {
+                const wchar_t* names[] = {L"一", L"二", L"三", L"四", L"五", L"六", L"日"};
+                day_label += names[d];
+            }
+            labels.push_back(day_label);
+        } else {
+            labels.push_back(L"🔁每周");
+        }
+        
+        s.erase(pos, day_pos - pos);
+    } else if ((pos = s.find(L"每月")) != std::wstring::npos) {
+        result.repeat_rule = L"monthly";
+        size_t num_pos = pos + 2;
+        
+        while (num_pos < s.size()) {
+            if (std::iswdigit(s[num_pos])) {
+                int day = s[num_pos] - L'0';
+                if (num_pos + 1 < s.size() && std::iswdigit(s[num_pos + 1])) {
+                    day = day * 10 + (s[num_pos + 1] - L'0');
+                    num_pos++;
+                }
+                result.repeat_days.push_back(day);
+                num_pos++;
+                
+                if (num_pos < s.size() && (s[num_pos] == L'号' || s[num_pos] == L'日')) {
+                    num_pos++;
+                }
+                
+                if (num_pos < s.size() && (s[num_pos] == L',' || s[num_pos] == L'，')) {
+                    num_pos++;
+                }
+                
+                while (num_pos < s.size() && std::iswspace(s[num_pos])) num_pos++;
+            } else {
+                break;
+            }
+        }
+        
+        if (!result.repeat_days.empty()) {
+            std::wstring day_label = L"🔁每月";
+            for (size_t i = 0; i < result.repeat_days.size(); ++i) {
+                if (i > 0) day_label += L",";
+                day_label += std::to_wstring(result.repeat_days[i]);
+            }
+            day_label += L"号";
+            labels.push_back(day_label);
+        } else {
+            labels.push_back(L"🔁每月");
+        }
+        
+        s.erase(pos, num_pos - pos);
+    }
+    
+    // 解析绝对月日或单日（在周期解析之后进行，避免误吞“每月15号”里的“15号”）
     for (size_t i = 0; i < s.size(); ++i) {
-        if (i + 2 < s.size() && std::iswdigit(s[i]) && (s[i+1] == L'月' || s[i+1] == L'月')) {
-            int month = s[i] - L'0';
+        if (std::iswdigit(s[i])) {
+            size_t start_idx = i;
+            int num1 = s[i] - L'0';
             if (i + 1 < s.size() && std::iswdigit(s[i+1])) {
-                month = month * 10 + (s[i+1] - L'0');
+                num1 = num1 * 10 + (s[i+1] - L'0');
                 i++;
             }
             
             if (i + 1 < s.size() && s[i+1] == L'月') {
-                i++;
-                
+                int month = num1;
+                i++; // 指向 '月'
                 int day = 0;
-                size_t day_start = i + 1;
-                while (day_start < s.size() && std::iswdigit(s[day_start])) {
-                    day = day * 10 + (s[day_start] - L'0');
-                    day_start++;
+                size_t day_idx = i + 1;
+                while (day_idx < s.size() && std::iswdigit(s[day_idx])) {
+                    day = day * 10 + (s[day_idx] - L'0');
+                    day_idx++;
                 }
-                
-                if (day > 0 && day <= 31) {
+                if (day_idx < s.size() && (s[day_idx] == L'日' || s[day_idx] == L'号')) {
+                    day_idx++;
+                }
+                if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
                     int year = st.wYear;
                     std::wstring candidate = calc_date(year, month, day);
                     if (candidate < today) {
@@ -462,25 +549,14 @@ ParseResult quick_parse(const std::wstring& input) {
                     }
                     result.due_date = candidate;
                     labels.push_back(L"📅" + std::to_wstring(month) + L"月" + std::to_wstring(day) + L"日");
-                    
-                    s.erase(i - 1 - (month >= 10 ? 1 : 0), day_start - (i - 1 - (month >= 10 ? 1 : 0)));
+                    s.erase(start_idx, day_idx - start_idx);
                     break;
                 }
-            }
-        }
-        
-        if (std::iswdigit(s[i])) {
-            int day = s[i] - L'0';
-            if (i + 1 < s.size() && std::iswdigit(s[i+1])) {
-                day = day * 10 + (s[i+1] - L'0');
-                i++;
-            }
-            
-            if (i + 1 < s.size() && (s[i+1] == L'号' || s[i+1] == L'日')) {
-                if (day > 0 && day <= 31) {
+            } else if (i + 1 < s.size() && (s[i+1] == L'号' || s[i+1] == L'日')) {
+                int day = num1;
+                if (day >= 1 && day <= 31) {
                     int month = st.wMonth;
                     int year = st.wYear;
-                    
                     std::wstring candidate = calc_date(year, month, day);
                     if (candidate < today) {
                         month++;
@@ -490,11 +566,9 @@ ParseResult quick_parse(const std::wstring& input) {
                         }
                         candidate = calc_date(year, month, day);
                     }
-                    
                     result.due_date = candidate;
                     labels.push_back(L"📅" + std::to_wstring(day) + L"号");
-                    
-                    s.erase(i - (day >= 10 ? 1 : 0), i + 2 - (i - (day >= 10 ? 1 : 0)));
+                    s.erase(start_idx, (i + 2) - start_idx);
                     break;
                 }
             }
@@ -502,7 +576,7 @@ ParseResult quick_parse(const std::wstring& input) {
     }
     
     for (size_t i = 0; i + 4 < s.size(); ++i) {
-        if (std::iswdigit(s[i]) && std::iswdigit(s[i+1]) && s[i+2] == L':' && 
+        if (std::iswdigit(s[i]) && std::iswdigit(s[i+1]) && (s[i+2] == L':' || s[i+2] == L'：') && 
             std::iswdigit(s[i+3]) && std::iswdigit(s[i+4])) {
             int hh = (s[i] - L'0') * 10 + (s[i+1] - L'0');
             int mm = (s[i+3] - L'0') * 10 + (s[i+4] - L'0');
@@ -552,7 +626,9 @@ ParseResult quick_parse(const std::wstring& input) {
                                 minute = minute * 10 + (s[num_pos + 1] - L'0');
                                 num_pos++;
                             }
-                            num_pos++;
+                            if (num_pos < s.size() && s[num_pos] == L'分') {
+                                num_pos++;
+                            }
                         }
                     }
                 }
@@ -565,83 +641,6 @@ ParseResult quick_parse(const std::wstring& input) {
                 break;
             }
         }
-    }
-    
-    if ((pos = s.find(L"每天")) != std::wstring::npos) {
-        result.repeat_rule = L"daily";
-        labels.push_back(L"🔁每天");
-        s.erase(pos, 2);
-    } else if ((pos = s.find(L"工作日")) != std::wstring::npos) {
-        result.repeat_rule = L"weekdays";
-        labels.push_back(L"🔁工作日");
-        s.erase(pos, 3);
-    } else if ((pos = s.find(L"每周")) != std::wstring::npos) {
-        result.repeat_rule = L"weekly";
-        size_t day_pos = pos + 2;
-        
-        std::map<wchar_t, int> day_map = {
-            {L'一', 0}, {L'二', 1}, {L'三', 2}, {L'四', 3}, 
-            {L'五', 4}, {L'六', 5}, {L'日', 6}
-        };
-        
-        while (day_pos < s.size() && day_map.count(s[day_pos])) {
-            result.repeat_days.push_back(day_map[s[day_pos]]);
-            day_pos++;
-        }
-        
-        if (!result.repeat_days.empty()) {
-            std::wstring day_label = L"🔁每周";
-            for (auto d : result.repeat_days) {
-                const wchar_t* names[] = {L"一", L"二", L"三", L"四", L"五", L"六", L"日"};
-                day_label += names[d];
-            }
-            labels.push_back(day_label);
-        } else {
-            labels.push_back(L"🔁每周");
-        }
-        
-        s.erase(pos, day_pos - pos);
-    } else if ((pos = s.find(L"每月")) != std::wstring::npos) {
-        result.repeat_rule = L"monthly";
-        size_t num_pos = pos + 2;
-        
-        while (num_pos < s.size()) {
-            if (std::iswdigit(s[num_pos])) {
-                int day = s[num_pos] - L'0';
-                if (num_pos + 1 < s.size() && std::iswdigit(s[num_pos + 1])) {
-                    day = day * 10 + (s[num_pos + 1] - L'0');
-                    num_pos++;
-                }
-                result.repeat_days.push_back(day);
-                num_pos++;
-                
-                if (num_pos < s.size() && (s[num_pos] == L'号' || s[num_pos] == L'日')) {
-                    num_pos++;
-                }
-                
-                if (num_pos < s.size() && s[num_pos] == L',') {
-                    num_pos++;
-                }
-                
-                while (num_pos < s.size() && std::iswspace(s[num_pos])) num_pos++;
-            } else {
-                break;
-            }
-        }
-        
-        if (!result.repeat_days.empty()) {
-            std::wstring day_label = L"🔁每月";
-            for (size_t i = 0; i < result.repeat_days.size(); ++i) {
-                if (i > 0) day_label += L",";
-                day_label += std::to_wstring(result.repeat_days[i]);
-            }
-            day_label += L"号";
-            labels.push_back(day_label);
-        } else {
-            labels.push_back(L"🔁每月");
-        }
-        
-        s.erase(pos, num_pos - pos);
     }
     
     while (!s.empty() && std::iswspace(s[0])) s.erase(0, 1);

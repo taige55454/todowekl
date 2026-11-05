@@ -1,19 +1,25 @@
 #include <windows.h>
+#include <windowsx.h>
 #include "app.h"
 #include "gfx.h"
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 
+HBRUSH g_whiteBrush = nullptr;
+
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     CoInitialize(nullptr);
     
+    g_whiteBrush = CreateSolidBrush(RGB(255, 255, 255));
+    
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
+    wc.style = CS_DBLCLKS;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
     wc.lpszClassName = L"ToDoWellWindow";
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
+    wc.hbrBackground = g_whiteBrush;
     RegisterClassExW(&wc);
 
     int ballSize = 60;
@@ -42,7 +48,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
 
     g_app->destroy();
     delete g_app;
+    g_app = nullptr;
     g_gfx.destroy();
+    
+    if (g_whiteBrush) {
+        DeleteObject(g_whiteBrush);
+        g_whiteBrush = nullptr;
+    }
+    
     CoUninitialize();
 
     return 0;

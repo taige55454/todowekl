@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include <windows.h>
 #include <windowsx.h>
 #include "app.h"
@@ -5,6 +6,7 @@
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 
+// 全局画刷资源
 HBRUSH g_whiteBrush = nullptr;
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
@@ -14,7 +16,6 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
-    wc.style = CS_DBLCLKS;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInst;
     wc.lpszClassName = L"ToDoWellWindow";
